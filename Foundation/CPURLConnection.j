@@ -190,7 +190,17 @@ var CPURLConnectionDelegate = nil;
     {   
         _XMLHTTPRequest.open([_request HTTPMethod], [_request URL], YES);
         
-        _XMLHTTPRequest.onreadystatechange = function() { [self _readyStateDidChange]; }
+        _XMLHTTPRequest.onreadystatechange = function()
+        {
+            try
+            {
+                [self _readyStateDidChange];
+            }
+            catch (anException)
+            {
+                objj_exception_report(anException, {path:@"CPURLConnection.j"});
+            }
+        }
 
         var fields = [_request allHTTPHeaderFields],
             key = nil,
@@ -203,7 +213,14 @@ var CPURLConnectionDelegate = nil;
     }
     catch (anException)
     {
-        [_delegate connection:self didFailWithError:anException];
+        try
+        {
+            [_delegate connection:self didFailWithError:anException];
+        }
+        catch (anotherException)
+        {
+            objj_exception_report(anotherException, {path:@"CPURLConnection.j"});
+        }
     }
 }
 
