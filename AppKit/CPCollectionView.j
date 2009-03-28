@@ -111,6 +111,7 @@
         _tileWidth = -1.0;
         
         _selectionIndexes = [CPIndexSet indexSet];
+        _isSelectable = YES;
     }
     
     return self;
@@ -258,7 +259,7 @@
 */
 - (void)setSelectionIndexes:(CPIndexSet)anIndexSet
 {
-    if (_selectionIndexes == anIndexSet)
+    if (_selectionIndexes == anIndexSet || !_isSelectable)
         return;
     
     var index = CPNotFound;
@@ -437,6 +438,23 @@
 }
 
 /*!
+    Returns the current number of rows
+*/
+- (unsigned)numberOfRows
+{
+    return _numberOfRows;
+}
+
+/*!
+    Returns the current number of columns
+*/
+
+- (unsigned)numberOfColumns
+{
+    return _numberOfColumns;
+}
+
+/*!
     Sets the minimum size for an item
     @param aSize the new minimum item size
 */
@@ -542,6 +560,11 @@
 
 // Cappuccino Additions
 
+/*!
+    Sets the collection view's vertical spacing between elements.
+    @param aVerticalMargin the number of pixels to place between elements
+*/
+
 - (void)setVerticalMargin:(float)aVerticalMargin
 {
     if (_verticalMargin == aVerticalMargin)
@@ -550,6 +573,15 @@
     _verticalMargin = aVerticalMargin;
     
     [self tile];
+}
+
+/*!
+    Gets the collection view's current vertical spacing between elements.
+*/
+
+- (float)verticalMargin
+{
+    return _verticalMargin;
 }
 
 /*!

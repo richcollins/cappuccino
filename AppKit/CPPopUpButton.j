@@ -65,6 +65,7 @@ var CPPopUpButtonArrowsImage = nil;
         
         [self setImagePosition:CPImageLeft];
         [self setAlignment:CPLeftTextAlignment];
+        [self setLineBreakMode:CPLineBreakByTruncatingTail];
         
         [self setMenu:[[CPMenu alloc] initWithTitle:@""]];
     }
@@ -137,6 +138,15 @@ var CPPopUpButtonArrowsImage = nil;
 }
 
 // Inserting and Deleting Items
+
+/*!
+    Adds a new menu item using a CPMenuItem object.
+*/
+- (void)addItem:(CPMenuItem)anItem
+{
+    [_menu addItem:anItem];
+}
+
 /*!
     Adds a new menu item with the specified title.
     @param the new menu item's tite
@@ -446,7 +456,7 @@ var CPPopUpButtonArrowsImage = nil;
 */
 - (int)indexOfItemWithTag:(int)aTag
 {
-    return [_menu indexOfItemWithTag:aMenuItem];
+    return [_menu indexOfItemWithTag:aTag];
 }
 
 /*!
@@ -466,7 +476,7 @@ var CPPopUpButtonArrowsImage = nil;
 */
 - (int)indexOfItemWithRepresentedObject:(id)anObject
 {
-    return [_menu indexOfItemWithRepresentedObejct:anObject];
+    return [_menu indexOfItemWithRepresentedObject:anObject];
 }
 
 /*!
@@ -638,19 +648,24 @@ var CPPopUpButtonArrowsImage = nil;
     [menuWindow setDelegate:self];
     [menuWindow setBackgroundStyle:_CPMenuWindowPopUpBackgroundStyle];
     
-    var menuOrigin = [theWindow convertBaseToBridge:[self convertPoint:CGPointMakeZero() toView:nil]];
-    
     // Pull Down Menus show up directly below their buttons.
     if (_pullsDown)
-        menuOrigin.y += CGRectGetHeight([self frame]);
+        var menuOrigin = [theWindow convertBaseToBridge:[self convertPoint:CGPointMake(0.0, CGRectGetMaxY([self bounds])) toView:nil]];
     
     // Pop Up Menus attempt to show up "on top" of the selected item.
     else
     {
-        var contentRect = [menuWindow rectForItemAtIndex:_selectedIndex];
+        // This is confusing, I KNOW, so let me explain it to you.
+        // We want the *content* of the selected menu item to overlap the *content* of our pop up.
+        // 1. So calculate where our content is, then calculate where the menu item is.
+        // 2. Move LEFT by whatever indentation we have (offsetWidths, aka, window margin, item margin, etc).
+        // 3. MOVE UP by the difference in sizes of the content and menu item, this will only work if the content is vertically centered.
+        var contentRect = [self convertRect:[self contentRectForBounds:[self bounds]] toView:nil],
+            menuOrigin = [theWindow convertBaseToBridge:contentRect.origin],
+            menuItemRect = [menuWindow rectForItemAtIndex:_selectedIndex];
         
-        menuOrigin.x -= CGRectGetMinX(contentRect) + [[[menu itemAtIndex:_selectedIndex] _menuItemView] calculatedLeftMargin];
-        menuOrigin.y -= CGRectGetMinY(contentRect);
+        menuOrigin.x -= CGRectGetMinX(menuItemRect) + [menuWindow overlapOffsetWidth] + [[[menu itemAtIndex:_selectedIndex] _menuItemView] overlapOffsetWidth];
+        menuOrigin.y -= CGRectGetMinY(menuItemRect) + (CGRectGetHeight(menuItemRect) - CGRectGetHeight(contentRect)) / 2.0;
     }
     
     [menuWindow setFrameOrigin:menuOrigin];
@@ -696,6 +711,20 @@ var CPPopUpButtonArrowsImage = nil;
         target = [selectedItem target];
 
     [self sendAction:action to:target];
+}
+
+- (CGRect)contentRectForBounds:(CGRect)bounds
+{
+    var contentRect = [super contentRectForBounds:bounds];
+    
+    if ([self isBordered])
+    {
+        contentRect.size.width -= 16.0;
+
+        return contentRect;
+    }
+    
+    return contentRect;
 }
 
 @end

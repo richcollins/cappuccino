@@ -206,6 +206,11 @@ var _CPMenuBarVisible               = NO,
     return self;
 }
 
+- (id)init
+{
+    return [self initWithTitle:@""];
+}
+
 // Setting Up Menu Commands
 /*!
     Inserts a menu item at the specified index.
@@ -944,6 +949,11 @@ var STICKY_TIME_INTERVAL        = 500,
     return self;
 }
 
+- (CGFloat)overlapOffsetWidth
+{
+    return LEFT_MARGIN;
+}
+
 - (void)setFont:(CPFont)aFont
 {
     [_menuView setFont:aFont];
@@ -1238,6 +1248,7 @@ var STICKY_TIME_INTERVAL        = 500,
 @implementation _CPMenuView : CPView
 {
     CPArray _menuItemViews;
+    CPArray _visibleMenuItemInfos;
     
     CPFont  _font;
 }
@@ -1264,21 +1275,33 @@ var STICKY_TIME_INTERVAL        = 500,
 
 - (int)itemIndexAtPoint:(CGPoint)aPoint
 {
-    var index = 0,
-        count = _menuItemViews.length;
+    var x = aPoint.x,
+        bounds = [self bounds];
     
-    for (; index < count; ++index)
+    if (x < CGRectGetMinX(bounds) || x > CGRectGetMaxX(bounds))
+        return CPNotFound;
+    
+    var y = aPoint.y,
+        low = 0,
+        high = _visibleMenuItemInfos.length - 1;
+       
+    while (low <= high)
     {
-        var view = _menuItemViews[index];
+        var middle = FLOOR(low + (high - low) / 2),
+            info = _visibleMenuItemInfos[middle]
+            frame = [info.view frame];
         
-        if ([view isHidden])
-            continue;
+        if (y < CGRectGetMinY(frame))
+            high = middle - 1;
         
-        if (CGRectContainsPoint([view frame], aPoint))
-            return index;
-    }
-    
-    return CPNotFound;
+        else if (y > CGRectGetMaxY(frame))
+            low = middle + 1;
+        
+        else
+            return info.index;
+   }
+   
+   return CPNotFound;
 }
 
 - (void)setMenu:(CPMenu)aMenu
@@ -1288,6 +1311,7 @@ var STICKY_TIME_INTERVAL        = 500,
     [_menuItemViews makeObjectsPerformSelector:@selector(removeFromSuperview)];   
     
     _menuItemViews = [];
+    _visibleMenuItemInfos = [];
     
     var menu = [self menu];
     
@@ -1311,6 +1335,8 @@ var STICKY_TIME_INTERVAL        = 500,
         if ([item isHidden])
             continue;
 
+        _visibleMenuItemInfos.push({ view:view, index:index });
+        
         [view setFont:_font];
         [view setShowsStateColumn:showsStateColumn];
         [view synchronizeWithMenuItem];

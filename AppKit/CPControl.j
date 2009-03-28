@@ -86,18 +86,35 @@ var CPControlBlackColor     = [CPColor blackColor];
 */
 @implementation CPControl : CPView
 {
-    id          _value;
+    id                      _value;
+    BOOL                    _isEnabled;
+    
+    // Display Properties
+    CPTextAlignment         _alignment;
+    CPVerticalTextAlignment _verticalAlignment;
+    
+    CPLineBreakMode         _lineBreakMode;
+    CPColor                 _textColor;
+    CPFont                  _font;
+    
+    CPCellImagePosition     _imagePosition;
+    CPImageScaling          _imageScaling;
+    
+    CPString                _toolTip;
+    
+    // Target-Action Support
+    id                      _target;
+    SEL                     _action;
+    int                     _sendActionOn;
+    
+    // Mouse Tracking Support
+    BOOL                    _continuousTracking;
+    BOOL                    _trackingWasWithinFrame;
+    unsigned                _trackingMouseDownFlags;
+    CGPoint                 _previousTrackingLocation;
 
-    BOOL        _isEnabled;
-    
-    int         _alignment;
-    CPFont      _font;
-    CPColor     _textColor;
+    // Stuff
     CPShadow    _textShadow;
-    
-    id          _target;
-    SEL         _action;
-    int         _sendActionOn;
     
     CPDictionary    _backgroundColors;
     CPString        _currentBackgroundColorName;
@@ -109,7 +126,11 @@ var CPControlBlackColor     = [CPColor blackColor];
     
     if (self)
     {
+        [self setVerticalAlignment:CPTopVerticalTextAlignment];
+        
         _sendActionOn = CPLeftMouseUpMask;
+        _trackingMouseDownFlags = 0;
+        
         _isEnabled = YES;
         
         [self setFont:[CPFont systemFontOfSize:12.0]];
@@ -138,6 +159,56 @@ var CPControlBlackColor     = [CPColor blackColor];
     return _isEnabled;
 }
 
+/*!
+    Sets the receiver's horizontal text alignment
+    @param anAlignment the receiver's alignment
+*/
+- (void)setAlignment:(CPTextAlignment)anAlignment
+{
+    _alignment = anAlignment;
+}
+
+/*!
+    Returns the receiver's horizontal text alignment
+*/
+- (CPTextAlignment)alignment
+{
+    return _alignment;
+}
+
+/*!
+    Sets the receiver's vertical text alignment
+    @param anAlignment the receiver's alignment
+*/
+- (void)setVerticalAlignment:(CPVerticalTextAlignment)anAlignment
+{
+    _verticalAlignment = anAlignment;
+}
+
+/*!
+    Returns the receiver's vertical text alignment
+*/
+- (CPVerticalTextAlignment)verticalAlignment
+{
+    return _verticalAlignment;
+}
+
+/*!
+    Sets the receiver's line break mode.
+    @param anAlignment the receiver's line break mode.
+*/
+- (void)setLineBreakMode:(CPLineBreakMode)aLineBreakMode
+{
+    _lineBreakMode = aLineBreakMode;
+}
+
+/*!
+    Returns the receiver's line break mode.
+*/
+- (CPLineBreakMode)lineBreakMode
+{
+    return _lineBreakMode;
+}
 
 /*!
     Sets the color of the receiver's text.
@@ -160,23 +231,6 @@ var CPControlBlackColor     = [CPColor blackColor];
 - (CPColor)textColor
 {
     return _textColor;
-}
-
-/*!
-    Returns the receiver's alignment
-*/
-- (CPTextAlignment)alignment
-{
-    return _alignment;
-}
-
-/*!
-    Sets the receiver's alignment
-    @param anAlignment the receiver's alignment
-*/
-- (void)setAlignment:(CPTextAlignment)anAlignment
-{
-    _alignment = anAlignment;
 }
 
 /*!
@@ -204,6 +258,46 @@ var CPControlBlackColor     = [CPColor blackColor];
 }
 
 /*!
+    Sets the position of the button's image to <code>anImagePosition</code>.
+    @param anImagePosition the position for the button's image
+*/
+- (void)setImagePosition:(CPCellImagePosition)anImagePosition
+{
+    if (_imagePosition === anImagePosition)
+        return;
+    
+    _imagePosition = anImagePosition;
+}
+
+/*!
+    Returns the buton's image position
+*/
+- (CPCellImagePosition)imagePosition
+{
+    return _imagePosition;
+}
+
+/*!
+    Sets the button's images scaling method
+    @param anImageScaling the image scaling method
+*/
+- (void)setImageScaling:(CPImageScaling)anImageScaling
+{
+    if (_imageScaling === anImageScaling)
+        return;
+    
+    _imageScaling = anImageScaling;
+}
+
+/*!
+    Returns the button's image scaling method
+*/
+- (CPImageScaling)imageScaling
+{
+    return _imageScaling;
+}
+
+/*!
     Sets the shadow for the receiver's text.
     @param aTextShadow the text shadow
 */
@@ -222,6 +316,32 @@ var CPControlBlackColor     = [CPColor blackColor];
     return _textShadow;
 }
 
+/*!
+    Sets the tooltip for the receiver.
+    @param aToolTip the tooltip
+*/
+/*
+-(void)setToolTip:(CPString)aToolTip
+{
+    if (_toolTip == aToolTip)
+        return;
+    
+    _toolTip = aToolTip;
+
+#if PLATFORM(DOM)
+    _DOMElement.title = aToolTip;
+#endif
+}
+*/
+/*!
+    Returns the receiver's tooltip
+*/
+/*
+-(CPString)toolTip
+{
+    return _toolTip;
+}
+*/
 /*!
     Returns the receiver's target action
 */
@@ -256,13 +376,82 @@ var CPControlBlackColor     = [CPColor blackColor];
     _target = aTarget;
 }
 
-- (void)mouseUp:(CPEvent)anEvent
+- (BOOL)tracksMouseOutsideOfFrame
 {
-    if (_sendActionOn & CPLeftMouseUpMask && CPRectContainsPoint([self bounds], [self convertPoint:[anEvent locationInWindow] fromView:nil]))
+    return NO;
+}
+
+- (void)trackMouse:(CPEvent)anEvent
+{
+    var type = [anEvent type],
+        currentLocation = [self convertPoint:[anEvent locationInWindow] fromView:nil];
+        isWithinFrame = [self tracksMouseOutsideOfFrame] || CGRectContainsPoint([self bounds], currentLocation);
+
+    if (type === CPLeftMouseUp)
+    {
+        [self stopTracking:_previousTrackingLocation at:currentLocation mouseIsUp:YES];
+        
+        _trackingMouseDownFlags = 0;
+    }
+    
+    else
+    {
+        if (type === CPLeftMouseDown)
+        {
+            _trackingMouseDownFlags = [anEvent modifierFlags];
+            _continuousTracking = [self startTrackingAt:currentLocation];
+        }
+        else if (type === CPLeftMouseDragged)
+        {
+            if (isWithinFrame)
+            {
+                if (!_trackingWasWithinFrame)
+                    _continuousTracking = [self startTrackingAt:currentLocation];
+                
+                else if (_continuousTracking)
+                    _continuousTracking = [self continueTracking:_previousTrackingLocation at:currentLocation];
+            }
+            else
+                [self stopTracking:_previousTrackingLocation at:currentLocation mouseIsUp:NO];
+        }
+        
+        [CPApp setTarget:self selector:@selector(trackMouse:) forNextEventMatchingMask:CPLeftMouseDraggedMask | CPLeftMouseUpMask untilDate:nil inMode:nil dequeue:YES];
+    }
+    
+    if ((_sendActionOn & (1 << type)) && isWithinFrame)
         [self sendAction:_action to:_target];
     
-    [super mouseUp:anEvent];
+    _trackingWasInFrame = isWithinFrame;
+    _previousTrackingLocation = currentLocation;
 }
+
+- (unsigned)mouseDownFlags
+{
+    return _trackingMouseDownFlags;
+}
+
+- (BOOL)startTrackingAt:(CGPoint)aPoint
+{
+    return (_sendActionOn & CPPeriodicMask) || (_sendActionOn & CPLeftMouseDraggedMask);
+}
+
+- (BOOL)continueTracking:(CGPoint)lastPoint at:(CGPoint)aPoint
+{
+    return (_sendActionOn & CPPeriodicMask) || (_sendActionOn & CPLeftMouseDraggedMask);
+}
+
+- (void)stopTracking:(CGPoint)lastPoint at:(CGPoint)aPoint mouseIsUp:(BOOL)mouseIsUp
+{
+}
+
+- (void)mouseDown:(CPEvent)anEvent
+{
+    if (!_isEnabled)
+        return;
+    
+    [self trackMouse:anEvent];
+}
+
 
 /*!
     Causes <code>anAction</code> to be sent to <code>anObject</code>.
@@ -289,7 +478,7 @@ var CPControlBlackColor     = [CPColor blackColor];
 - (BOOL)isContinuous
 {
     // Some subclasses should redefine this with CPLeftMouseDraggedMask
-    return (_sendActionOn & CPPeriodicMask) != 0;
+    return (_sendActionOn & CPPeriodicMask) !== 0;
 }
 
 /*!
@@ -530,6 +719,7 @@ var CPControlBlackColor     = [CPColor blackColor];
 var CPControlValueKey           = "CPControlValueKey",
     CPControlIsEnabledKey       = "CPControlIsEnabledKey",
     CPControlAlignmentKey       = "CPControlAlignmentKey",
+    CPControlVerticalAlignmentKey   = @"CPControlVerticalAlignmentKey",
     CPControlFontKey            = "CPControlFontKey",
     CPControlTextColorKey       = "CPControlTextColorKey",
     CPControlTargetKey          = "CPControlTargetKey",
@@ -559,6 +749,7 @@ var __Deprecated__CPImageViewImageKey   = @"CPImageViewImageKey";
         [self setEnabled:[aCoder decodeBoolForKey:CPControlIsEnabledKey]];
         
         [self setAlignment:[aCoder decodeIntForKey:CPControlAlignmentKey]];
+        [self setVerticalAlignment:[aCoder decodeIntForKey:CPControlVerticalAlignmentKey]];
         [self setFont:[aCoder decodeObjectForKey:CPControlFontKey]];
         [self setTextColor:[aCoder decodeObjectForKey:CPControlTextColorKey]];
         
@@ -583,6 +774,8 @@ var __Deprecated__CPImageViewImageKey   = @"CPImageViewImageKey";
     [aCoder encodeBool:_isEnabled forKey:CPControlIsEnabledKey];
     
     [aCoder encodeInt:_alignment forKey:CPControlAlignmentKey];
+    [aCoder encodeInt:_verticalAlignment forKey:CPControlVerticalAlignmentKey];
+    
     [aCoder encodeObject:_font forKey:CPControlFontKey];
     [aCoder encodeObject:_textColor forKey:CPControlTextColorKey];
     

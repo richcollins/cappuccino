@@ -20,7 +20,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-@import "_CPImageAndTitleView.j"
+@import "_CPImageAndTextView.j"
 @import "CGGeometry.j"
 
 @import "CPControl.j"
@@ -248,7 +248,7 @@ var _CPButtonClassName                          = nil,
     
     BOOL                    _bezelBorderNeedsUpdate;
     
-    _CPImageAndTitleView    _imageAndTitleView;
+    _CPImageAndTextView     _imageAndTextView;
 }
 
 /*!
@@ -311,7 +311,7 @@ var _CPButtonClassName                          = nil,
 */
 - (void)setButtonType:(CPButtonType)aButtonType
 {
-    if (aButtonType == CPSwitchButton)
+    if (aButtonType === CPSwitchButton)
     {
         [self setBordered:NO];
         [self setImage:nil];
@@ -326,15 +326,15 @@ var _CPButtonClassName                          = nil,
     
     if (self)
     {
-        _imagePosition = CPNoImage;
-        _imageScaling = CPScaleNone;
+        [self setAlignment:CPCenterTextAlignment];
+        [self setVerticalAlignment:CPCenterVerticalTextAlignment];
+        [self setImagePosition:CPImageLeft];
+        [self setImageScaling:CPScaleNone];
         
         _controlSize = CPRegularControlSize;
         
         [self setBezelStyle:CPRoundRectBezelStyle];
         [self setBordered:YES];
-        
-        [self setAlignment:CPCenterTextAlignment];
     }
     
     return self;
@@ -346,20 +346,9 @@ var _CPButtonClassName                          = nil,
 */
 - (void)setImagePosition:(CPCellImagePosition)anImagePosition
 {
-    if (_imagePosition == anImagePosition)
-        return;
+    [super setImagePosition:anImagePosition];
     
-    _imagePosition = anImagePosition;
-    
-    [self drawContentsWithHighlight:_isHighlighted];
-}
-
-/*!
-    Returns the buton's image position
-*/
-- (CPCellImagePosition)imagePosition
-{
-    return _imagePosition;
+    [_imageAndTextView setImagePosition:[self imagePosition]];
 }
 
 /*!
@@ -368,20 +357,9 @@ var _CPButtonClassName                          = nil,
 */
 - (void)setImageScaling:(CPImageScaling)anImageScaling
 {
-    if (_imageScaling == anImageScaling)
-        return;
-    
-    _imageScaling = anImageScaling;
-    
-    [self drawContentsWithHighlight:_isHighlighted];
-}
+    [super setImageScaling:anImageScaling];
 
-/*!
-    Returns the button's image scaling method
-*/
-- (CPImageScaling)imageScaling
-{
-    return _imageScaling;
+    [_imageAndTextView setImageScaling:[self imageScaling]];
 }
 
 /*!
@@ -392,7 +370,7 @@ var _CPButtonClassName                          = nil,
 {
     [super setTextColor:aColor];
     
-    [self drawContentsWithHighlight:_isHighlighted];
+    [_imageAndTextView setTextColor:[self textColor]];
 }
 
 /*!
@@ -403,7 +381,7 @@ var _CPButtonClassName                          = nil,
 {
     [super setFont:aFont];
     
-    [self drawContentsWithHighlight:_isHighlighted];
+    [_imageAndTextView setFont:[self font]];
 }
 
 // Setting the state
@@ -461,7 +439,7 @@ var _CPButtonClassName                          = nil,
 {
     [super setAlignment:anAlignment];
     
-    [self drawContentsWithHighlight:_isHighlighted];
+    [_imageAndTextView setAlignment:[self alignment]];
 }
 
 /*!
@@ -470,12 +448,12 @@ var _CPButtonClassName                          = nil,
 */
 - (void)setImage:(CPImage)anImage
 {
-    if (_image == anImage)
+    if (_image === anImage)
         return;
     
     _image = anImage;
     
-    [self drawContentsWithHighlight:_isHighlighted];
+    [self setNeedsDisplay:YES];
 }
 
 /*!
@@ -514,7 +492,7 @@ var _CPButtonClassName                          = nil,
     
     _title = aTitle;
     
-    [self drawContentsWithHighlight:_isHighlighted];
+    [self setNeedsDisplay:YES];
 }
 
 /*!
@@ -543,20 +521,76 @@ var _CPButtonClassName                          = nil,
         else if (_bezelStyle == CPTexturedRoundedBezelStyle)
             imageAndTitleSize.height -= 2.0;
     
-        [_imageAndTitleView setFrameSize:imageAndTitleSize];
+        [_imageAndTextView setFrameSize:imageAndTitleSize];
     }
     else
-        [_imageAndTitleView setFrameSize:size];
+        [_imageAndTextView setFrameSize:size];
+}
+
+- (CGRect)contentRectForBounds:(CGRect)bounds
+{
+    if (_isBordered)
+    {
+        if (_bezelStyle === CPHUDBezelStyle)
+        {
+            bounds.origin.x += 5.0;
+            bounds.origin.y += 2.0;
+            bounds.size.width -= 5.0 * 2;
+            bounds.size.height -= 2.0 + 4.0;
+        }
+        
+        else if (_bezelStyle === CPRoundRectBezelStyle)
+        {
+            bounds.origin.x += 5.0;
+            bounds.origin.y += 1.0;
+            bounds.size.width -= 5.0 * 2;
+            bounds.size.height -= 1.0 + 2.0;
+        }
+        
+        else if (_bezelStyle === CPTexturedRoundedBezelStyle)
+        {
+            bounds.origin.x += 5.0;
+            bounds.origin.y += 2.0;
+            bounds.size.width -= 5.0 * 2;
+            bounds.size.height -= 2.0 + 3.0;
+        }
+    }
+
+    return bounds;
+}
+
+- (void)drawRect:(CGRect)aRect
+{
+    if (!_imageAndTextView)
+    {
+        _imageAndTextView = [[_CPImageAndTextView alloc] initWithFrame:[self contentRectForBounds:[self bounds]] control:self];
+
+        [self addSubview:_imageAndTextView];
+    }
+    else
+        [_imageAndTextView setFrame:[self contentRectForBounds:[self bounds]]];
+
+    [_imageAndTextView setText:_isHighlighted && _alternateTitle ? _alternateTitle : _title];
+    [_imageAndTextView setImage:_isHighlighted && _alternateImage ? _alternateImage : _image];
 }
 
 /*!
     Compacts the button's frame to fit its contents.
 */
 - (void)sizeToFit
-{
-    [_imageAndTitleView sizeToFit];
+{    if (!_imageAndTextView)
+    {
+        _imageAndTextView = [[_CPImageAndTextView alloc] initWithFrame:[self contentRectForBounds:[self bounds]] control:self];
+
+        [self addSubview:_imageAndTextView];
+    }
     
-    var frame = [_imageAndTitleView frame],
+    [_imageAndTextView setText:_isHighlighted && _alternateTitle ? _alternateTitle : _title];
+    [_imageAndTextView setImage:_isHighlighted && _alternateImage ? _alternateImage : _image];
+
+    [_imageAndTextView sizeToFit];
+    
+    var frame = [_imageAndTextView frame],
         height = CGRectGetHeight(frame);
     /*
     if (_isBordered)
@@ -571,24 +605,15 @@ var _CPButtonClassName                          = nil,
 }
 
 /*!
-    Sets the frame size for the button.
-    @param the new frame size
-*/
-- (void)setFrameSize:(CGSize)aSize
-{
-    [super setFrameSize:aSize];
-
-    [self tile];
-}
-
-/*!
     Highlights the receiver based on <code>aFlag</code>.
     @param If <code>YES</code> the button will highlight, <code>NO</code> the button will unhighlight.
 */
 - (void)highlight:(BOOL)aFlag
 {
+    _isHighlighted = aFlag;
+    
     [self drawBezelWithHighlight:aFlag];
-    [self drawContentsWithHighlight:aFlag];
+    [self setNeedsDisplay:YES];
 }
 
 /*!
@@ -608,39 +633,18 @@ var _CPButtonClassName                          = nil,
     return _tag;
 }
 
-/*!
-    Called when the user clicks on this button.
-    @param anEvent the event with information about the click
-*/
-- (void)mouseDown:(CPEvent)anEvent
+- (BOOL)startTrackingAt:(CGPoint)aPoint
 {
-    _isHighlighted = YES;
+    [self highlight:YES];
     
-    [self highlight:_isHighlighted];
+    return [super startTrackingAt:aPoint];
 }
 
-/*!
-    Called when the user drags on the button.
-    @param anEvent the event with information about the drag
-*/
-- (void)mouseDragged:(CPEvent)anEvent
+- (void)stopTracking:(CGPoint)lastPoint at:(CGPoint)aPoint mouseIsUp:(BOOL)mouseIsUp
 {
-    _isHighlighted = CGRectContainsPoint([self bounds], [self convertPoint:[anEvent locationInWindow] fromView:nil]);
+    [self highlight:NO];
     
-    [self highlight:_isHighlighted];
-}
-
-/*!
-    Called when the user releases the mouse button
-    @param anEvent the event with information about the mouse release
-*/
-- (void)mouseUp:(CPEvent)anEvent
-{
-    _isHighlighted = NO;
-    
-    [self highlight:_isHighlighted];
-
-    [super mouseUp:anEvent];
+    [super stopTracking:lastPoint at:aPoint mouseIsUp:mouseIsUp];
 }
 
 /*!
@@ -771,31 +775,6 @@ var _CPButtonClassName                          = nil,
     [self setBackgroundColorWithName:shouldHighlight ? CPControlHighlightedBackgroundColor : CPControlNormalBackgroundColor];
 }
 
-/* @ignore */
-- (void)drawContentsWithHighlight:(BOOL)isHighlighted
-{
-    if (!_title && !_image && !_alternateTitle && !_alternateImage && !_imageAndTitleView)
-        return;
-    
-    if (!_imageAndTitleView)
-    {
-        _imageAndTitleView = [[_CPImageAndTitleView alloc] initWithFrame:[self bounds]];
-                
-        [self addSubview:_imageAndTitleView];
-        
-        [self tile];
-    }
-        
-    [_imageAndTitleView setFont:[self font]];
-    [_imageAndTitleView setTextColor:[self textColor]];
-    [_imageAndTitleView setAlignment:[self alignment]];
-    [_imageAndTitleView setImagePosition:_imagePosition];
-    [_imageAndTitleView setImageScaling:_imageScaling];
-        
-    [_imageAndTitleView setTitle:isHighlighted && _alternateTitle ? _alternateTitle : _title];
-    [_imageAndTitleView setImage:isHighlighted && _alternateImage ? _alternateImage : _image];
-}
-
 - (void)viewDidMoveToWindow
 {
     if (_bezelBorderNeedsUpdate)
@@ -861,12 +840,12 @@ var CPButtonImageKey                = @"CPButtonImageKey",
 */
 - (void)encodeWithCoder:(CPCoder)aCoder
 {
-    // We do this in order to avoid encoding the _imageAndTitleView, which 
+    // We do this in order to avoid encoding the _imageAndTextView, which 
     // should just automatically be created programmatically as needed.
     var actualSubviews = _subviews;
     
     _subviews = [_subviews copy];
-    [_subviews removeObjectIdenticalTo:_imageAndTitleView];
+    [_subviews removeObjectIdenticalTo:_imageAndTextView];
     
     [super encodeWithCoder:aCoder];
     

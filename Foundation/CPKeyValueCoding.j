@@ -54,7 +54,7 @@ CPUnknownUserInfoKey        = @"CPUnknownUserInfoKey";
         selector = [accessors objectForKey:aKey];
         
         if (selector)
-            return selector == [CPNull null] ? nil : selector;
+            return selector === [CPNull null] ? nil : selector;
     }
     else
     {
@@ -97,7 +97,7 @@ CPUnknownUserInfoKey        = @"CPUnknownUserInfoKey";
         selector = [modifiers objectForKey:aKey];
         
         if (selector)
-            return selector == [CPNull null] ? nil : selector;
+            return selector === [CPNull null] ? nil : selector;
     }
     else
     {
@@ -107,7 +107,7 @@ CPUnknownUserInfoKey        = @"CPUnknownUserInfoKey";
     }
     
     if (selector)
-        return selector == [CPNull null] ? nil : selector;
+        return selector === [CPNull null] ? nil : selector;
 
     var capitalizedKey = aKey.charAt(0).toUpperCase() + aKey.substr(1) + ':';
 
@@ -278,81 +278,4 @@ CPUnknownUserInfoKey        = @"CPUnknownUserInfoKey";
 
 @end
 
-//KVC on CPArray objects act on each item of the array, rather than on the array itself
-
-@implementation CPArray (KeyValueCoding)
-
-- (id)valueForKey:(CPString)aKey
-{
-    if (aKey.indexOf("@") == 0)
-    {
-        if (aKey == "@count")
-            return length;
-            
-        return nil;
-    }
-    else
-    {
-        var newArray = [],
-            enumerator = [self objectEnumerator],
-            object;
-            
-        while (object = [enumerator nextObject])
-        {
-            var value = [object valueForKey:aKey];
-            
-            if (!value && value !== "")
-                value = [NSNull null];
-                
-            newArray.push(value);
-        }
-        
-        return newArray;
-    }
-}
-
-- (id)valueForKeyPath:(CPString)aKeyPath
-{
-    if (aKey.indexOf("@") == 0)
-    {            
-        return nil;
-    }
-    else
-    {
-        var newArray = [],
-            enumerator = [self objectEnumerator],
-            object;
-            
-        while (object = [enumerator nextObject])
-        {
-            var value = [object valueForKeyPath:aKeyPath];
-            
-            if (!value && value !== "")
-                value = [NSNull null];
-                
-            newArray.push(value);
-        }
-        
-        return newArray;
-    }
-}
-
-- (void)setValue:(id)aValue forKey:(CPString)aKey
-{
-    var enumerator = [self objectEnumerator],
-        object;
-    
-    while (object = [enumerator nextObject])
-        [object setValue:aValue forKey:aKey];
-}
-
-- (void)setValue:(id)aValue forKeyPath:(CPString)aKeyPath
-{
-    var enumerator = [self objectEnumerator],
-        object;
-    
-    while (object = [enumerator nextObject])
-        [object setValue:aValue forKeyPath:aKeyPath];
-}
-
-@end
+@import "CPArray+KVO.j"

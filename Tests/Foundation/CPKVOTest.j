@@ -1,16 +1,22 @@
-import <Foundation/CPKeyValueCoding.j>
-import <Foundation/CPKeyValueObserving.j>
+@import <Foundation/CPKeyValueCoding.j>
+@import <Foundation/CPKeyValueObserving.j>
 
 @implementation CPKVOTest : OJTestCase
 {
     BOOL    _sawInitialObservation;
     BOOL    _sawPriorObservation;
     BOOL    _sawObservation;
+    BOOL    _sawDependentObservation;
     
     id      bob;
     id      obj;
     id      cs101;
     id      focus;
+}
+
+- (void)setUp
+{
+    _sawObservation = NO;
 }
 
 - (void)testAddObserver
@@ -132,8 +138,8 @@ import <Foundation/CPKeyValueObserving.j>
     _sawInitialObservation = NO;
 
     bob = [[PersonTester alloc] init];
-    
-    bob.name = "paul";    
+
+    bob.name = "paul";
 
     [bob addObserver:self forKeyPath:@"name" options:CPKeyValueObservingOptionInitial context:"testInitialObservationOption"];
     [bob removeObserver:self forKeyPath:@"name"];
@@ -143,6 +149,22 @@ import <Foundation/CPKeyValueObserving.j>
     [self assertTrue: _sawInitialObservation message: "asked for CPKeyValueObservingOptionInitial but did not recieve corresponding notification"];
 }
 
+- (void)testDependentKeyObservation
+{
+    _sawDependentObservation = NO;
+    
+    bob = [[PersonTester alloc] init];
+    
+    bob.name = "paul";    
+
+    [bob addObserver:self forKeyPath:@"bobName" options:0 context:"testDependentKeyObservation"];
+
+    [bob setValue:@"bob" forKey:@"name"];
+
+    [self assertTrue: _sawDependentObservation message: "asked for bobName but did not recieve corresponding notification"];
+    [self assertTrue: [bob valueForKey:@"bobName"] === @"BOB! set_bob" message: "should have been BOB! set_bob, was "+[bob valueForKey:@"bobName"]];    
+}
+
 - (void)testMultipartKey
 {
     cs101 = [ClassTester new];
@@ -150,7 +172,7 @@ import <Foundation/CPKeyValueObserving.j>
     
     [cs101 setTeacher:bob];
     
-    [cs101 addObserver:self forKeyPath:@"teacher.name" options:nil context:"testMultipartKey"];
+    [cs101 addObserver:self forKeyPath:@"teacher.name" options:0 context:"testMultipartKey"];
     
     [bob setName:@"bob"];
     
@@ -167,7 +189,7 @@ import <Foundation/CPKeyValueObserving.j>
     [cs101 setTeacher:bob];
     [bob setValue:focus forKey:"car"];
 
-    [cs101 addObserver:self forKeyPath:@"teacher.car.model" options:nil context:"testThreePartKey"];
+    [cs101 addObserver:self forKeyPath:@"teacher.car.model" options:0 context:"testThreePartKey"];
 
     [focus setValue:"ford focus" forKey:"model"];
     [self assertTrue: _sawObservation message:"Never recieved an observation"];
@@ -182,7 +204,7 @@ import <Foundation/CPKeyValueObserving.j>
     [cs101 setTeacher:bob];
     [focus setValue:"2000" forKey:"year"];
 
-    [cs101 addObserver:self forKeyPath:@"teacher.car.year" options:nil context:"testThreePartKeyPart2"];
+    [cs101 addObserver:self forKeyPath:@"teacher.car.year" options:0 context:"testThreePartKeyPart2"];
     
     [bob setValue:focus forKey:"car"];
 
@@ -196,7 +218,7 @@ import <Foundation/CPKeyValueObserving.j>
     
     [cs101 setTeacher:bob];
     
-    [cs101 addObserver:self forKeyPath:@"teacher.name" options:nil context:"testRemoveMultipartKey"];
+    [cs101 addObserver:self forKeyPath:@"teacher.name" options:0 context:"testRemoveMultipartKey"];
     
     [cs101 removeObserver:self forKeyPath:@"teacher.name"];
     
@@ -214,7 +236,7 @@ import <Foundation/CPKeyValueObserving.j>
     [cs101 setTeacher:bob];
     [bob setValue:focus forKey:"car"];
 
-    [cs101 addObserver:self forKeyPath:@"teacher.car.model" options:nil context:"testRemoveThreePartKey"];
+    [cs101 addObserver:self forKeyPath:@"teacher.car.model" options:0 context:"testRemoveThreePartKey"];
     [cs101 removeObserver:self forKeyPath:@"teacher.car.model"];
 
     [focus setValue:"ford focus" forKey:"model"];
@@ -233,7 +255,7 @@ import <Foundation/CPKeyValueObserving.j>
     [a setValue:[E new] forKeyPath:"b.c.d.e"];
     [a setValue:[F new] forKeyPath:"b.c.d.e.f"];
     
-    [a addObserver:self forKeyPath:"b.c.d.e.f" options:nil context:"testCrazyKeyPathChanges"];
+    [a addObserver:self forKeyPath:"b.c.d.e.f" options:0 context:"testCrazyKeyPathChanges"];
     
     [a setValue:[D new] forKeyPath:"b.c.d"];
     
@@ -250,7 +272,7 @@ import <Foundation/CPKeyValueObserving.j>
     [a setValue:[E new] forKeyPath:"b.c.d.e"];
     [a setValue:[F new] forKeyPath:"b.c.d.e.f"];
     
-    [a addObserver:self forKeyPath:"b.c.d.e.f" options:nil context:"testCrazyKeyPathChanges2"];
+    [a addObserver:self forKeyPath:"b.c.d.e.f" options:0 context:"testCrazyKeyPathChanges2"];
     
     [a setValue:nil forKeyPath:"b.c"];
     
@@ -267,11 +289,50 @@ import <Foundation/CPKeyValueObserving.j>
     [a setValue:[E new] forKeyPath:"b.c.d.e"];
     [a setValue:[F new] forKeyPath:"b.c.d.e.f"];
     
-    [a addObserver:self forKeyPath:"b.c.d.e.f" options:nil context:"testCrazyKeyPathChanges3"];
+    [a addObserver:self forKeyPath:"b.c.d.e.f" options:0 context:"testCrazyKeyPathChanges3"];
     
     [a setValue:7 forKeyPath:"b.c.d.e.f"];
     
     [self assertTrue: _sawObservation message:"Never recieved an observation"];
+}
+
+- (void)testInsertIntoToManyProperty
+{
+    var tester = [ToManyTester new];
+    
+    [tester setValue:[1, 2, 3, 4] forKey:@"managedObjects"];
+    
+    
+    [tester addObserver:self forKeyPath:@"managedObjects" options:0 context:"testInsertIntoToManyProperty"];
+    
+    [tester insertObject:5 inManagedObjectsAtIndex:4];
+    
+    [self assertTrue: _sawObservation message:"Never recieved an observation"];
+}
+
+- (void)testRemoveFromToManyProperty
+{
+    var tester = [ToManyTester new];
+    
+    [tester setValue:[1, 2, 3, 4] forKey:@"managedObjects"];
+    
+    [tester addObserver:self forKeyPath:@"managedObjects" options:0 context:"testRemoveFromToManyProperty"];
+    
+    [tester removeObjectFromManagedObjectsAtIndex:0];
+    
+    [self assertTrue: _sawObservation message:"Never recieved an observation"];
+}
+
+- (void)testKVCArrayOperators
+{
+    var one = [1, 1, 1, 1, 1, 1, 1, 1],
+        two = [1, 2, 3, 4, 8, 0];
+    
+    [self assertTrue:[one valueForKey:"@count"]===8 message:@"expected count of 8, got: "+[one valueForKey:@"@count"]]
+    [self assertTrue:[one valueForKeyPath:@"@sum.intValue"]===8 message:@"expected sum of 8, got: "+[one valueForKeyPath:@"@sum.intValue"]];
+    [self assertTrue:[two valueForKeyPath:@"@avg.intValue"]===3 message:@"expected avg of 3, got: "+[two valueForKeyPath:@"@avg.intValue"]];
+    [self assertTrue:[two valueForKeyPath:@"@max.intValue"]===8 message:@"expected max of 8, got: "+[two valueForKeyPath:@"@max.intValue"]];
+    [self assertTrue:[two valueForKeyPath:@"@min.intValue"]===0 message:@"expected min of 0, got: "+[two valueForKeyPath:@"@min.intValue"]];
 }
 
 - (void)testPerformance
@@ -281,22 +342,22 @@ import <Foundation/CPKeyValueObserving.j>
     [bob setValue:"initial bob" forKey:"name"];
 
     var startTime = new Date();
-    
+
     for(var i=0; i<1000; i++)
         [bob setValue:i+"bob" forKey:"name"];
-        
+
     var total = new Date() - startTime;
 
     [bob addObserver:[CPObject new] forKeyPath:"name" options:nil context:nil];
 
     startTime = new Date();
-    
+
     for(var i=0; i<1000; i++)
         [bob setValue: i+"bob" forKey:"name"];
-        
+
     var secondTotal = new Date() - startTime;
 
-    [self assertTrue: (secondTotal < total*3) message: "Overheard of one observer exceeded 300%. first: "+total+" second: "+secondTotal+" %"+FLOOR(secondTotal/total*100)];
+    [self assertTrue: (secondTotal < total*4) message: "Overhead of one observer exceeded 400%. first: "+total+" second: "+secondTotal+" %"+FLOOR(secondTotal/total*100)];
 }
 
 - (void)observeValueForKeyPath:(CPString)aKeyPath ofObject:(id)anObject change:(CPDictionary)changes context:(id)aContext
@@ -410,6 +471,30 @@ import <Foundation/CPKeyValueObserving.j>
             [self assertTrue: aKeyPath == "b.c.d.e.f" message:"Expected keyPath b.c.d.e.f, got: "+aKeyPath];
             break;
             
+        case "testDependentKeyObservation":
+            [self assertTrue: aKeyPath == "bobName" message: @"expected key value change for bobName, got: "+aKeyPath];
+            _sawDependentObservation = YES;
+            break;
+
+        case "testInsertIntoToManyProperty":
+            var type = [changes objectForKey:CPKeyValueChangeKindKey];
+            [self assertTrue: type == CPKeyValueChangeInsertion message: "Should have been an insertion, was: "+type];
+            
+            var values = [changes objectForKey:CPKeyValueChangeNewKey];
+            [self assertTrue: [values isEqual:[5]] message: "array should have contained 5, was: "+values+" type: "+[values.isa description]+" length: "+values.length];
+            
+            break;
+
+        case "testRemoveFromToManyProperty":
+            var type = [changes objectForKey:CPKeyValueChangeKindKey];
+            [self assertTrue: type == CPKeyValueChangeRemoval message: "Should have been a removal, was: "+type];
+            
+            var values = [changes objectForKey:CPKeyValueChangeOldKey];
+            [self assertTrue: [values isEqual:[1]] message: "array should have contained 1, was: "+values+" type: "+[values.isa description]+" length: "+values.length];
+            [[anObject valueForKey:@"managedObjects"] isEqual:[2, 3, 4]];
+            
+            break;
+            
         default:
             [self assertFalse:YES message:"unhandled observation, must be an error"];
             return;
@@ -436,9 +521,19 @@ import <Foundation/CPKeyValueObserving.j>
     CarTester   car;
 }
 
++ (CPSet)keyPathsForValuesAffectingValueForBobName
+{
+    return [CPSet setWithObject:"name"];
+}
+
 - (void)setName:(CPString)aName
 {
     name = "set_"+aName;
+}
+
+- (CPString)bobName
+{
+    return "BOB! "+name;
 }
 
 @end
@@ -465,6 +560,33 @@ import <Foundation/CPKeyValueObserving.j>
 - (void)setModel:(CPString)aModel
 {
     model = aModel;
+}
+
+@end
+
+@implementation ToManyTester : CPObject
+{
+    CPArray managedObjects;
+}
+
+- (unsigned int)countOfManagedObjects
+{
+    return [managedObjects count];
+}
+
+- (id)objectInManagedObjectsAtIndex:(unsigned)anIndex
+{
+    return [managedObjects objectAtIndex:anIndex];
+}
+
+- (void)removeObjectFromManagedObjectsAtIndex:(unsigned)anIndex
+{
+    [managedObjects removeObjectAtIndex:anIndex];
+}
+
+- (void)insertObject:(id)anObject inManagedObjectsAtIndex:(unsigned)anIndex
+{
+    [managedObjects insertObject:anObject atIndex:anIndex];
 }
 
 @end

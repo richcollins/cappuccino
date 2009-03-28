@@ -1,6 +1,6 @@
-import <Foundation/Foundation.j>
+@import <Foundation/Foundation.j>
 
-import "objj-analysis-tools.j"
+@import "objj-analysis-tools.j"
 
 var defaultMain = "main.j",
     defaultFrameworks = "Frameworks";
@@ -11,7 +11,8 @@ var usageMessage =
         --frameworks path   The relative path (from root_directory) to the frameworks directory (default: 'Frameworks')\n\
         --png               Run pngcrush on all PNGs (pngcrush must be installed!)\n\
         --flatten           Flatten all code into a single Application.js file and attempt add script tag to index.html (useful for Adobe AIR and CDN deployment)\n\
-        --nostrip           Don't strip any files";
+        --nostrip           Don't strip any files\n\
+        --v                 Verbose";
 
 function main()
 {
@@ -22,7 +23,7 @@ function main()
         optimizePNG = false,
         flatten = false,
         noStrip = false,
-        verbose = true;
+        verbose = false;
     
     var usageError = false;
     while (args.length && !usageError)
@@ -50,6 +51,9 @@ function main()
                 break;
             case "--nostrip":
                 noStrip = true;
+                break;
+            case "--v":
+                verbose = true;
                 break;
             default:
                 if (rootDirectory == null)
@@ -107,6 +111,7 @@ function main()
         {
             var xmlOutput = new Packages.java.io.ByteArrayOutputStream();
             outputTransformer(xmlOutput, aResponse.xml, "UTF-8");
+            //__fakeResponse.xml = String(xmlOutput.toString());
             __fakeResponse.text = CPPropertyListCreate280NorthData(CPPropertyListCreateFromXMLData({ string:String(xmlOutput.toString())})).string;
             //CPLog.trace("SERIALIZED: " + __fakeResponse.xml.substring(0,100));
         }
@@ -117,13 +122,20 @@ function main()
     }
     
     // phase 1: get global defines
-    CPLog.info("Loading application...");
+    CPLog.error("PHASE 1: Loading application...");
+    
     var globals = findGlobalDefines(cx, scope, mainPath, evaledFragments);
     
     // coalesce the results
     var dependencies = coalesceGlobalDefines(globals);
     
+    // Log 
+    CPLog.trace("Global defines:");
+    for (var i in dependencies)
+        CPLog.trace("    " + i + " => " + dependencies[i]);
+    
     // phase 2: walk the dependency tree (both imports and references) to determine exactly which files need to be included
+    CPLog.error("PHASE 2: Walk dependency tree...");
     
     var requiredFiles = {};
     
@@ -140,7 +152,7 @@ function main()
             return;
         }
         
-        CPLog.info("Analyzing dependencies...");
+        CPLog.warn("Analyzing dependencies...");
         
         var context = {
             scope : scope,
@@ -169,21 +181,21 @@ function main()
             }
             else
             {
-                CPLog.warn("Excluded: " + path);
+                CPLog.info("Excluded: " + path);
             }    
             total++;
         }
-        CPLog.info("Total required files: " + count + " out of " + total);
+        CPLog.warn("Total required files: " + count + " out of " + total);
         
         // FIXME: sprite images
-        for (var i in context.bundleImages)
-        {
-            var images = context.bundleImages[i];
-            
-            //CPLog.info("Bundle images for " + i);
-            //for (var j in images)
-            //    CPLog.debug(j + " = " + images[j]);
-        }
+        //for (var i in context.bundleImages)
+        //{
+        //    var images = context.bundleImages[i];
+        //    
+        //    CPLog.debug("Bundle images for " + i);
+        //    for (var j in images)
+        //        CPLog.trace(j + " = " + images[j]);
+        //}
     }
     
     var outputFiles = {};
@@ -191,7 +203,7 @@ function main()
     if (flatten)
     {
         // phase 3a: build single Application.js file (and modified index.html)
-        CPLog.info("Flattening...");
+        CPLog.error("PHASE 3a: Flattening...");
         
         var applicationJS = [],
             indexHTML = readFile(rootDirectory + "/index.html");
@@ -208,6 +220,7 @@ function main()
                 var data = new objj_data();
                 data.string = aResponse.text;
                 bundle.info = CPPropertyListCreateFrom280NorthData(data);
+                //bundle.info = CPPropertyListCreateFromXMLData({ string : aResponse.xml });
             }
             else
                 bundle.info = new objj_dictionary();
@@ -232,7 +245,7 @@ function main()
             }
             else
             {
-                CPLog.warn("Stripping " + evaledFragments[i].file.path);
+                CPLog.info("Stripping " + evaledFragments[i].file.path);
             }
         }
         
@@ -244,18 +257,11 @@ function main()
                 window.attachEvent('onload', main);"
         );
         
+        // comment out any OBJJ_MAIN_FILE defintions or objj_import() calls
+        indexHTML = indexHTML.replace(/(\bOBJJ_MAIN_FILE\s*=|\bobjj_import\s*\()/g, '//$&');
         
-        // do a little regex magic to remove the objj_import and put in a script tag for Application.js 
-        var matches = indexHTML.match(/<script[^>]*>(?:.|\n)*?<\/script>/g);
-        for (var i = 0; i < matches.length; i++)
-        {
-            if (/\bobjj_import\s*\(/.test(matches[i]))
-            {
-                CPLog.warn("Replacing objj_import with script tag.");
-                var replacement = '<script src = "Application.js" type = "text/javascript"></script>\n' + matches[i].replace("objj_import", "//objj_import");
-                indexHTML = indexHTML.replace(matches[i], replacement);
-            }
-        }
+        // add a script tag for Application.js at the very end of the <head> block
+        indexHTML = indexHTML.replace(/([ \t]*)(<\/head>)/, '$1    <script src = "Application.js" type = "text/javascript"></script>\n$1$2');
         
         // output Application.js and index.html
         outputFiles[rootDirectory + "/Application.js"] = applicationJS.join("\n");
@@ -264,6 +270,7 @@ function main()
     else
     {
         // phase 3b: rebuild .sj files with correct imports, copy .j files
+        CPLog.error("PHASE 3b: Rebuild .sj");
 
         var bundles = {};
         
@@ -274,7 +281,7 @@ function main()
                 directory = dirname(path);
     
             if (file.path != path)
-                CPLog.warn("Sanity check (file path): " + file.path + " vs. " + path);
+                CPLog.warn("Sanity check failed (file path): " + file.path + " vs. " + path);
     
             if (file.bundle)
             {
@@ -284,7 +291,7 @@ function main()
                     bundles[file.bundle.path] = file.bundle;
             
                 if (bundleDirectory != directory)
-                    CPLog.warn("Sanity check (directory path): " + directory + " vs. " + bundleDirectory);
+                    CPLog.warn("Sanity check failed (directory path): " + directory + " vs. " + bundleDirectory);
         
                 // if it's in a .sj
                 var dict = file.bundle.info,
@@ -339,7 +346,7 @@ function main()
                                 }
                             }
                             else
-                                CPLog.warn("Ignoring import fragment " + file.fragments[i].info + " in " + path);
+                                CPLog.info("Ignoring import fragment " + file.fragments[i].info + " in " + path);
                         }
                         else
                             CPLog.error("Unknown fragment type");
@@ -356,30 +363,41 @@ function main()
         }
 
         // phase 3.5: fix bundle plists
+        CPLog.error("PHASE 3.5: fix bundle plists");
+        
         for (var path in bundles)
         {
-            var bundle = bundles[path];
-            CPLog.info("Bundle: " + path);
-    
-            var dict = file.bundle.info,
+            var directory = dirname(path),
+                dict = bundles[path].info,
                 replacedFiles = [dict objectForKey:"CPBundleReplacedFiles"];
+            
+            CPLog.info("Modifying .sj: " + path);
+            
             if (replacedFiles)
             {
+                var newReplacedFiles = [];
+                [dict setObject:newReplacedFiles forKey:"CPBundleReplacedFiles"];
+                
                 for (var i = 0; i < replacedFiles.length; i++)
                 {
-                    if (!requiredFiles[replacedFiles[i]])
+                    var replacedFilePath = directory + "/" + replacedFiles[i]
+                    if (!requiredFiles[replacedFilePath])
                     {
                         CPLog.info("Removing: " + replacedFiles[i]);
-                        replacedFiles.splice(i, 1);
+                    }
+                    else
+                    {
+                        //CPLog.info("Keeping: " + replacedFiles[i]);
+                        newReplacedFiles.push(replacedFiles[i]);
                     }
                 }
             }
-    
-            outputFiles[path] = CPPropertyListCreateXMLData(bundle.info).string;
+            outputFiles[path] = CPPropertyListCreateXMLData(dict).string;
         }
     }
     
     // phase 4: copy everything and write out the new files
+    CPLog.error("PHASE 4: copy to output");
     
     var rootDirectoryFile = new Packages.java.io.File(rootDirectory),
         outputDirectoryFile = new Packages.java.io.File(outputDirectory);
@@ -543,7 +561,7 @@ function outputTransformer(os, document, encoding, standalone)
 	if (standalone)
 		serializer.setOutputProperty(Packages.javax.xml.transform.OutputKeys.STANDALONE,	(standalone ? "yes" : "no"));
 
-	serializer.transform(domSource, streamResult);
+	String(serializer.transform(domSource, streamResult));
 }
 
 main();

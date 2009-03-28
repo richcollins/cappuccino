@@ -91,7 +91,8 @@ var CPStringHashes      = new objj_dictionary();
 */
 + (id)stringWithHash:(unsigned)aHash
 {
-    return sprintf("%06x", aHash);
+    var hashString = parseInt(aHash, 10).toString(16);
+    return "000000".substring(0, MAX(6-hashString.length, 0)) + hashString;
 }
 
 /*!
@@ -221,13 +222,16 @@ var CPStringHashes      = new objj_dictionary();
         return substr(0, aLength);
 
     var string = self,
-        substring = aString.substr(anIndex),
+        substring = aString.substring(anIndex),
         difference = aLength - length;
 
-    while ((difference -= substring.length) > 0)
+    while ((difference -= substring.length) >= 0)
         string += substring;
     
-    if (difference) string += substring.substr(difference + substring.length);
+    if (-difference < substring.length) 
+        string += substring.substring(0, -difference);
+
+    return string;
 }
 
 //Dividing Strings
@@ -583,7 +587,12 @@ var CPStringHashes      = new objj_dictionary();
 */
 - (CPArray)pathComponents
 {
-    return split('/');
+    var result = split('/');
+    if (result[0] === "")
+        result[0] = "/";
+    if (result[result.length - 1] === "")
+        result.pop();
+    return result;
 }
 
 /*!
@@ -657,6 +666,24 @@ var CPStringHashes      = new objj_dictionary();
 - (JSObject)objectFromJSON
 {
     return CPJSObjectCreateWithJSON(self);
+}
+
+@end
+
+
+@implementation CPString (UUID)
+
+/*!
+    Returns a randomly generated Universally Unique Identifier.
+*/
++ (CPString)UUID
+{
+    var g = @"";
+    
+    for(var i = 0; i < 32; i++)
+        g += FLOOR(RAND() * 0xF).toString(0xF);
+    
+    return g;
 }
 
 @end

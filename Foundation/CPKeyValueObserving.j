@@ -24,18 +24,25 @@
 @import "CPDictionary.j"
 @import "CPException.j"
 @import "CPObject.j"
+@import "CPSet.j"
 
 
 @implementation CPObject (KeyValueObserving)
 
 - (void)willChangeValueForKey:(CPString)aKey
 {
-
 }
 
 - (void)didChangeValueForKey:(CPString)aKey
 {
+}
 
+- (void)willChange:(CPKeyValueChange)change valuesAtIndexes:(CPIndexSet)indexes forKey:(CPString)key
+{
+}
+
+- (void)didChange:(CPKeyValueChange)change valuesAtIndexes:(CPIndexSet)indexes forKey:(CPString)key
+{
 }
 
 - (void)addObserver:(id)anObserver forKeyPath:(CPString)aPath options:(unsigned)options context:(id)aContext
@@ -54,9 +61,20 @@
     [[KVOProxyMap objectForKey:[self hash]] _removeObserver:anObserver forKeyPath:aPath];
 }
 
-- (BOOL)automaticallyNotifiesObserversForKey:(CPString)aKey
++ (BOOL)automaticallyNotifiesObserversForKey:(CPString)aKey
 {
     return YES;
+}
+
++ (CPSet)keyPathsForValuesAffectingValueForKey:(CPString)aKey
+{
+    var capitalizedKey = aKey.charAt(0).toUpperCase()+aKey.substring(1);
+        selector = "keyPathsForValuesAffectingValueFor"+capitalizedKey;
+
+    if ([[self class] respondsToSelector:selector])
+        return objj_msgSend([self class], selector);
+
+    return [CPSet set];
 }
 
 @end
@@ -67,9 +85,6 @@ CPKeyValueObservingOptionOld        = 1 << 1;
 CPKeyValueObservingOptionInitial    = 1 << 2;
 CPKeyValueObservingOptionPrior      = 1 << 3;
 
-//convenience
-var kvoNewAndOld = CPKeyValueObservingOptionNew|CPKeyValueObservingOptionOld;
-
 // KVO Change Dictionary Keys
 CPKeyValueChangeKindKey                 = @"CPKeyValueChangeKindKey";
 CPKeyValueChangeNewKey                  = @"CPKeyValueChangeNewKey";
@@ -77,8 +92,18 @@ CPKeyValueChangeOldKey                  = @"CPKeyValueChangeOldKey";
 CPKeyValueChangeIndexesKey              = @"CPKeyValueChangeIndexesKey";
 CPKeyValueChangeNotificationIsPriorKey  = @"CPKeyValueChangeNotificationIsPriorKey";
 
+// KVO Change Types
+CPKeyValueChangeSetting     = 1;
+CPKeyValueChangeInsertion   = 2;
+CPKeyValueChangeRemoval     = 3;
+CPKeyValueChangeReplacement = 4;
+
+//convenience
+var kvoNewAndOld = CPKeyValueObservingOptionNew|CPKeyValueObservingOptionOld;
+
 // Map of real objects to their KVO proxy
-var KVOProxyMap = [CPDictionary dictionary];
+var KVOProxyMap = [CPDictionary dictionary],
+    DependentKeysMap = [CPDictionary dictionary];
 
 //rule of thumb: _ methods are called on the real proxy object, others are called on the "fake" proxy object (aka the real object)
 
@@ -89,7 +114,7 @@ var KVOProxyMap = [CPDictionary dictionary];
     Class           _nativeClass;
     CPDictionary    _changesForKey;
     CPDictionary    _observersForKey;
-    CPDictionary    _replacementMethods;
+    CPSet           _replacedKeys;
 }
 
 + (id)proxyForObject:(CPObject)anObject
@@ -100,10 +125,6 @@ var KVOProxyMap = [CPDictionary dictionary];
         return proxy;
 
     proxy = [[self alloc] initWithTarget:anObject];
-
-    //[proxy _replaceSetters];
-    
-    //anObject.isa = proxy.isa;
 
     [proxy _replaceClass];
 
@@ -118,53 +139,11 @@ var KVOProxyMap = [CPDictionary dictionary];
 
     _targetObject       = aTarget;
     _nativeClass        = [aTarget class];
-    _replacementMethods = [CPDictionary dictionary];
     _observersForKey    = [CPDictionary dictionary];
     _changesForKey      = [CPDictionary dictionary];
+    _replacedKeys       = [CPSet set];
 
     return self;
-}
-
-- (void)_replaceSetters
-{
-    var currentClass = [_targetObject class];
-
-    while (currentClass && currentClass != currentClass.super_class)
-    {
-        var methodList = currentClass.method_list,
-            count = methodList.length;
-
-        for (var i=0; i<count; i++)
-        {
-            var newMethod = _kvoMethodForMethod(_targetObject, methodList[i]);
-
-            if (newMethod)
-                [_replacementMethods setObject:newMethod forKey:methodList[i].name];
-        }
-
-        currentClass = currentClass.super_class;
-    }
-}
-
-- (void)_replaceSetters
-{
-    var currentClass = [_targetObject class];
-
-    while (currentClass && currentClass != currentClass.super_class)
-    {
-        var methodList = currentClass.method_list,
-            count = methodList.length;
-
-        for (var i=0; i<count; i++)
-        {
-            var newMethod = _kvoMethodForMethod(_targetObject, methodList[i]);
-
-            if (newMethod)
-                [_replacementMethods setObject:newMethod forKey:methodList[i].name];
-        }
-
-        currentClass = currentClass.super_class;
-    }
 }
 
 - (void)_replaceClass
@@ -183,23 +162,8 @@ var KVOProxyMap = [CPDictionary dictionary];
         
     objj_registerClassPair(kvoClass);
     _class_initialize(kvoClass);
-    
-    while (currentClass && currentClass != currentClass.super_class)
-    {
-        var methodList = currentClass.method_list,
-            count = methodList.length;
-
-        for (var i=0; i<count; i++)
-        {
-            var newMethodImp = _kvoMethodForMethod(_targetObject, methodList[i]);
-
-            if (newMethodImp)
-                class_addMethod(kvoClass, method_getName(methodList[i]), newMethodImp, "");
-        }
-
-        currentClass = currentClass.super_class;
-    }
-    
+        
+    //copy in the methods from our model subclass
     var methodList = _CPKVOModelSubclass.method_list,
         count = methodList.length;
 
@@ -212,6 +176,69 @@ var KVOProxyMap = [CPDictionary dictionary];
     _targetObject.isa = kvoClass;
 }
 
+- (void)_replaceSetterForKey:(CPString)aKey
+{    
+    if ([_replacedKeys containsObject:aKey] || ![_nativeClass automaticallyNotifiesObserversForKey:aKey])
+        return;
+        
+    var currentClass = _nativeClass,
+        capitalizedKey = aKey.charAt(0).toUpperCase() + aKey.substring(1),
+        found = false,
+        replacementMethods = [
+            "set"+capitalizedKey+":", _kvoMethodForMethod,
+            "_set"+capitalizedKey+":", _kvoMethodForMethod,
+            "insertObject:in"+capitalizedKey+"AtIndex:", _kvoInsertMethodForMethod,
+            "replaceObjectIn"+capitalizedKey+"AtIndex:withObject:", _kvoReplaceMethodForMethod,
+            "removeObjectFrom"+capitalizedKey+"AtIndex:", _kvoRemoveMethodForMethod
+        ];
+    
+    for (var i=0, count=replacementMethods.length; i<count; i+=2)
+    {
+        var theSelector = sel_getName(replacementMethods[i]),
+            theReplacementMethod = replacementMethods[i+1];
+
+        if ([_nativeClass instancesRespondToSelector:theSelector])
+        {
+            var theMethod = class_getInstanceMethod(_nativeClass, theSelector);
+
+            class_addMethod(_targetObject.isa, theSelector, theReplacementMethod(aKey, theMethod), "");
+
+            found = true;
+        }
+    }
+
+    if (found)
+        return;
+
+    var composedOfKeys = [[_nativeClass keyPathsForValuesAffectingValueForKey:aKey] allObjects];
+
+    if (!composedOfKeys)
+        return;
+
+    var dependentKeysForClass = [DependentKeysMap objectForKey:[_nativeClass hash]];
+
+    if (!dependentKeysForClass)
+    {
+        dependentKeysForClass = [CPDictionary new];
+        [DependentKeysMap setObject:dependentKeysForClass forKey:[_nativeClass hash]];
+    }
+
+    for (var i=0, count=composedOfKeys.length; i<count; i++)
+    {
+        var componentKey = composedOfKeys[i],
+            keysComposedOfKey = [dependentKeysForClass objectForKey:componentKey];
+
+        if (!keysComposedOfKey)
+        {
+            keysComposedOfKey = [CPSet new];
+            [dependentKeysForClass setObject:keysComposedOfKey forKey:componentKey];
+        }
+
+        [keysComposedOfKey addObject:aKey];
+        [self _replaceSetterForKey:componentKey];
+    }
+}
+
 - (void)_addObserver:(id)anObserver forKeyPath:(CPString)aPath options:(unsigned)options context:(id)aContext
 {
     if (!anObserver)
@@ -221,6 +248,8 @@ var KVOProxyMap = [CPDictionary dictionary];
     
     if (aPath.indexOf('.') != CPNotFound)
         forwarder = [[_CPKVOForwardingObserver alloc] initWithKeyPath:aPath object:_targetObject observer:anObserver options:options context:aContext];
+    else
+        [self _replaceSetterForKey:aPath];
 
     var observers = [_observersForKey objectForKey:aPath];
 
@@ -236,7 +265,7 @@ var KVOProxyMap = [CPDictionary dictionary];
     {
         var newValue = [_targetObject valueForKeyPath:aPath];
 
-        if (!newValue && newValue !== "")
+        if (newValue === nil || newValue === undefined)
             newValue = [CPNull null];
 
         var changes = [CPDictionary dictionaryWithObject:newValue forKey:CPKeyValueChangeNewKey];
@@ -266,21 +295,41 @@ var KVOProxyMap = [CPDictionary dictionary];
     }
 }
 
-- (void)_sendNotificationsForKey:(CPString)aKey isBefore:(BOOL)isBefore
+//FIXME: We do not compute and cache if CPKeyValueObservingOptionOld is needed, so we may do unnecessary work
+
+- (void)_sendNotificationsForKey:(CPString)aKey changeOptions:(CPDictionary)changeOptions isBefore:(BOOL)isBefore
 {
     var changes = [_changesForKey objectForKey:aKey];
 
     if (isBefore)
     {
-        changes = [CPDictionary dictionary];
+        changes = changeOptions;
 
-        var oldValue = [_targetObject valueForKey:aKey];
+        var indexes = [changes objectForKey:CPKeyValueChangeIndexesKey];
+        
+        if (indexes)
+        {
+            var type = [changes objectForKey:CPKeyValueChangeKindKey];
+            
+            // for to-many relationships, oldvalue is only sensible for replace and remove
+            if (type == CPKeyValueChangeReplacement || type == CPKeyValueChangeRemoval)
+            {
+                //FIXME: do we need to go through and replace "" with CPNull? 
+                var oldValues = [[_targetObject mutableArrayValueForKeyPath:aKey] objectsAtIndexes:indexes];
+                [changes setValue:oldValues forKey:CPKeyValueChangeOldKey];
+            }
+        }
+        else
+        {
+            var oldValue = [_targetObject valueForKey:aKey];
+    
+            if (oldValue === nil || oldValue === undefined)
+                oldValue = [CPNull null];
 
-        if (!oldValue && oldValue !== "")
-            oldValue = [CPNull null];
-
+            [changes setObject:oldValue forKey:CPKeyValueChangeOldKey];
+        }
+        
         [changes setObject:1 forKey:CPKeyValueChangeNotificationIsPriorKey];
-        [changes setObject:oldValue forKey:CPKeyValueChangeOldKey];
 
         [_changesForKey setObject:changes forKey:aKey];
     }
@@ -288,12 +337,29 @@ var KVOProxyMap = [CPDictionary dictionary];
     {
         [changes removeObjectForKey:CPKeyValueChangeNotificationIsPriorKey];
 
-        var newValue = [_targetObject valueForKey:aKey];
-
-        if (!newValue && newValue !== "")
-            newValue = [CPNull null];
-
-        [changes setObject:newValue forKey:CPKeyValueChangeNewKey];
+        var indexes = [changes objectForKey:CPKeyValueChangeIndexesKey];
+        
+        if (indexes)
+        {
+            var type = [changes objectForKey:CPKeyValueChangeKindKey];
+            
+            // for to-many relationships, oldvalue is only sensible for replace and remove
+            if (type == CPKeyValueChangeReplacement || type == CPKeyValueChangeInsertion)
+            {
+                //FIXME: do we need to go through and replace "" with CPNull? 
+                var oldValues = [[_targetObject mutableArrayValueForKeyPath:aKey] objectsAtIndexes:indexes];
+                [changes setValue:oldValues forKey:CPKeyValueChangeNewKey];
+            }
+        }
+        else
+        {
+            var newValue = [_targetObject valueForKey:aKey];
+    
+            if (newValue === nil || newValue === undefined)
+                newValue = [CPNull null];
+    
+            [changes setObject:newValue forKey:CPKeyValueChangeNewKey];
+        }
     }
     
     var observers = [[_observersForKey objectForKey:aKey] allValues],
@@ -308,6 +374,14 @@ var KVOProxyMap = [CPDictionary dictionary];
         else if (!isBefore)
             [observerInfo.observer observeValueForKeyPath:aKey ofObject:_targetObject change:changes context:observerInfo.context];
     }
+    
+    var keysComposedOfKey = [[[DependentKeysMap objectForKey:[_nativeClass hash]] objectForKey:aKey] allObjects];
+    
+    if (!keysComposedOfKey)
+        return;
+
+    for (var i=0, count=keysComposedOfKey.length; i<count; i++)
+        [self _sendNotificationsForKey:keysComposedOfKey[i] changeOptions:changeOptions isBefore:isBefore];
 }
 
 @end
@@ -321,7 +395,9 @@ var KVOProxyMap = [CPDictionary dictionary];
     if (!aKey)
         return;
 
-    [[_CPKVOProxy proxyForObject:self] _sendNotificationsForKey:aKey isBefore:YES];
+    var changeOptions = [CPDictionary dictionaryWithObject:CPKeyValueChangeSetting forKey:CPKeyValueChangeKindKey];
+
+    [[_CPKVOProxy proxyForObject:self] _sendNotificationsForKey:aKey changeOptions:changeOptions isBefore:YES];
 }
 
 - (void)didChangeValueForKey:(CPString)aKey
@@ -329,7 +405,25 @@ var KVOProxyMap = [CPDictionary dictionary];
     if (!aKey)
         return;
 
-    [[_CPKVOProxy proxyForObject:self] _sendNotificationsForKey:aKey isBefore:NO];
+    [[_CPKVOProxy proxyForObject:self] _sendNotificationsForKey:aKey changeOptions:nil isBefore:NO];
+}
+
+- (void)willChange:(CPKeyValueChange)change valuesAtIndexes:(CPIndexSet)indexes forKey:(CPString)aKey
+{
+    if (!aKey)
+        return;
+
+    var changeOptions = [CPDictionary dictionaryWithObjects:[change, indexes] forKeys:[CPKeyValueChangeKindKey, CPKeyValueChangeIndexesKey]];
+    
+    [[_CPKVOProxy proxyForObject:self] _sendNotificationsForKey:aKey changeOptions:changeOptions isBefore:YES];
+}
+
+- (void)didChange:(CPKeyValueChange)change valuesAtIndexes:(CPIndexSet)indexes forKey:(CPString)aKey
+{
+    if (!aKey)
+        return;
+
+    [[_CPKVOProxy proxyForObject:self] _sendNotificationsForKey:aKey changeOptions:nil isBefore:NO];
 }
 
 - (Class)class
@@ -448,72 +542,44 @@ var _CPKVOInfoMake = function _CPKVOInfoMake(anObserver, theOptions, aContext, a
     };
 }
 
-var _kvoKeyForSetter = function _kvoKeyForSetter(selector)
+var _kvoMethodForMethod = function _kvoMethodForMethod(theKey, theMethod)
 {
-    if (selector.split(":").length > 2 || !([selector hasPrefix:@"set"] || [selector hasPrefix:@"_set"]))
-        return nil;
-        
-    var keyIndex = selector.indexOf("set") + "set".length,
-        colonIndex = selector.indexOf(":");
-    
-    return selector.charAt(keyIndex).toLowerCase() + selector.substring(keyIndex+1, colonIndex);
-}
-
-var _kvoMethodForMethod = function _kvoMethodForMethod(theObject, theMethod)
-{
-    var methodName = theMethod.name,
-        methodImplementation = theMethod.method_imp,
-        setterKey = _kvoKeyForSetter(methodName);
-    
-    if (setterKey && objj_msgSend(theObject, @selector(automaticallyNotifiesObserversForKey:), setterKey))
-    {            
-        var newMethodImp = function(self) 
-        {
-            [self willChangeValueForKey:setterKey];
-            methodImplementation.apply(self, arguments);
-            [self didChangeValueForKey:setterKey];
-        }
-        
-        return newMethodImp;
-    }
-
-    return nil;
-}
-
-@implementation CPArray (KeyValueObserving)
-
-- (void)addObserver:(id)anObserver toObjectsAtIndexes:(CPIndexSet)indexes forKeyPath:(CPString)aKeyPath options:(unsigned)options context:(id)context
-{
-    var index = [indexes firstIndex];
-    
-    while (index >= 0)
+    return function(self, _cmd, object) 
     {
-        [self[index] addObserver:anObserver forKeyPath:aKeyPath options:options context:context];
-
-		index = [indexes indexGreaterThanIndex:index];
+        [self willChangeValueForKey:theKey];
+        theMethod.method_imp(self, _cmd, object);
+        [self didChangeValueForKey:theKey];
     }
 }
 
-- (void)removeObserver:(id)anObserver fromObjectsAtIndexes:(CPIndexSet)indexes forKeyPath:(CPString)aKeyPath
+var _kvoInsertMethodForMethod = function _kvoInsertMethodForMethod(theKey, theMethod)
 {
-    var index = [indexes firstIndex];
-    
-    while (index >= 0)
+    return function(self, _cmd, object, index)
     {
-        [self[index] removeObserver:anObserver forKeyPath:aKeyPath];
-
-		index = [indexes indexGreaterThanIndex:index];
+        [self willChange:CPKeyValueChangeInsertion valuesAtIndexes:[CPIndexSet indexSetWithIndex:index] forKey:theKey];
+        theMethod.method_imp(self, _cmd, object, index);
+        [self didChange:CPKeyValueChangeInsertion valuesAtIndexes:[CPIndexSet indexSetWithIndex:index] forKey:theKey]
     }
 }
 
--(void)addObserver:(id)observer forKeyPath:(CPString)aKeyPath options:(unsigned)options context:(id)context
+var _kvoReplaceMethodForMethod = function _kvoReplaceMethodForMethod(theKey, theMethod)
 {
-    [CPException raise:CPInvalidArgumentException reason:"Unsupported method on CPArray"];
+    return function(self, _cmd, index, object)
+    {
+        [self willChange:CPKeyValueChangeReplacement valuesAtIndexes:[CPIndexSet indexSetWithIndex:index] forKey:theKey];
+        theMethod.method_imp(self, _cmd, index, object);
+        [self didChange:CPKeyValueChangeReplacement valuesAtIndexes:[CPIndexSet indexSetWithIndex:index] forKey:theKey]
+    }
 }
 
--(void)removeObserver:(id)observer forKeyPath:(CPString)aKeyPath
+var _kvoRemoveMethodForMethod = function _kvoRemoveMethodForMethod(theKey, theMethod)
 {
-    [CPException raise:CPInvalidArgumentException reason:"Unsupported method on CPArray"];
+    return function(self, _cmd, index)
+    {
+        [self willChange:CPKeyValueChangeRemoval valuesAtIndexes:[CPIndexSet indexSetWithIndex:index] forKey:theKey];
+        theMethod.method_imp(self, _cmd, index);
+        [self didChange:CPKeyValueChangeRemoval valuesAtIndexes:[CPIndexSet indexSetWithIndex:index] forKey:theKey]
+    }
 }
 
-@end
+@import "CPArray+KVO.j"

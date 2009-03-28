@@ -248,11 +248,13 @@ var _CPTextFieldSquareBezelColor = nil,
     
     _bezelStyle = aBezelStyle;
     
+#if PLATFORM(DOM)
     if (aBezelStyle == CPTextFieldRoundedBezel)
         _DOMTextElement.style.paddingLeft = ROUNDEDBEZEL_HORIZONTAL_PADDING - 1.0 + "px";        
     else 
         _DOMTextElement.style.paddingLeft = "0px";        
-        
+#endif
+
     [self _updateBackground];
 }
 
@@ -387,17 +389,17 @@ var _CPTextFieldSquareBezelColor = nil,
 /* @ignore */
 - (BOOL)acceptsFirstResponder
 {
-    return _isEditable;
+    return _isEditable && _isEnabled;
 }
 
 /* @ignore */
 - (BOOL)becomeFirstResponder
-{
+{    
+#if PLATFORM(DOM)
     var string = [self stringValue];
 
     [self setStringValue:""];
-    
-#if PLATFORM(DOM)
+
     var element = [[self class] _inputElement];
 
     element.value = string;
@@ -477,7 +479,7 @@ var _CPTextFieldSquareBezelColor = nil,
 
     // If current value is the placeholder value, remove it to allow user to update.
     if ([string lowercaseString] == [[self placeholderString] lowercaseString])
-        [self setStringValue:""];
+        element.value = "";
     
     //post CPControlTextDidBeginEditingNotification
     [self textDidBeginEditing:[CPNotification notificationWithName:CPControlTextDidBeginEditingNotification object:self userInfo:nil]];
@@ -513,6 +515,14 @@ var _CPTextFieldSquareBezelColor = nil,
     return YES;
 }
 
+- (void)mouseDown:(CPEvent)anEvent
+{
+    if (![self isEditable])
+        return [[self nextResponder] mouseDown:anEvent];
+
+    [super mouseDown:anEvent];
+}
+/*
 - (void)mouseUp:(CPEvent)anEvent
 {    
     if (_isEditable && [[self window] firstResponder] == self)
@@ -520,7 +530,7 @@ var _CPTextFieldSquareBezelColor = nil,
         
     [super mouseUp:anEvent];
 }
-
+*/
 /*! 
     Sets whether or not the receiver text field can be edited
 */
@@ -673,7 +683,7 @@ var _CPTextFieldSquareBezelColor = nil,
         else
             displayString += aValue;
     }
-    
+
     if ([[self window] firstResponder] == self)
         [[self class] _inputElement].value = displayString;
 
@@ -698,11 +708,14 @@ var _CPTextFieldSquareBezelColor = nil,
 */
 -(void)setPlaceholderString:(CPString)aStringValue
 {
+    if(_placeholderString && [self stringValue] === _placeholderString)
+        _value = @"";
+
     _placeholderString = aStringValue;
 
     //if there is no set value, automatically display the placeholder
     if (!_value) 
-        [self setStringValue:aStringValue];
+        [self setStringValue:_placeholderString];
 }
 
 /*!
